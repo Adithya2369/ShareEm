@@ -1,3 +1,9 @@
+# How to run:
+# python sender.py --ip <receiver_ip_address> <file1> <file2> ...
+# 192.168.70.245
+# Example: python sender.py --ip 192.168.1.100 file1.txt file2.pdf
+# Note: Multiple files can be specified at once
+
 import os
 import socket
 import sys
@@ -9,15 +15,20 @@ def send_file(client, file_path):
         file_size = os.path.getsize(file_path)
         filename = os.path.basename(file_path)
 
-        # Send filename and size
-        client.send(filename.encode())
-        client.send(str(file_size).encode())
+        # Send filename and size with delimiters
+        header = f"{filename}|{file_size}||"
+        client.send(header.encode())
 
-        # Send file data
-        data = file.read()
-        client.sendall(data)
+        # Send file data in chunks
+        CHUNK_SIZE = 1024
+        while True:
+            chunk = file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            client.send(chunk)
+        
+        # Send end marker
         client.send(b"<END>")
-
         file.close()
         print(f"Successfully sent {filename}")
         return True
@@ -36,7 +47,7 @@ def main():
         client.connect((args.ip, 9999))
         
         # Send number of files first
-        client.send(str(len(args.files)).encode())
+        client.send(f"{len(args.files)}||".encode())
         
         # Send each file
         for file_path in args.files:

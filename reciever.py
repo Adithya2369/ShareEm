@@ -1,12 +1,22 @@
+# How to run:
+# python reciever.py
+# Note: The receiver will listen on port 9999 on all network interfaces (0.0.0.0)
+# Make sure this port is not blocked by firewall
+
 import socket
 import tqdm
 import os
 
 def receive_file(client, progress_bar=None):
     try:
-        # Receive filename and size
-        filename = client.recv(1024).decode()
-        file_size = client.recv(1024).decode()
+        # Receive header info (filename and size)
+        header = ""
+        while "||" not in header:
+            header += client.recv(1024).decode()
+        
+        header = header.split("||")[0]  # Get the first part before delimiter
+        filename, file_size = header.split("|")
+        file_size = int(file_size)
 
         # Create downloads directory if it doesn't exist
         if not os.path.exists('downloads'):
@@ -14,25 +24,29 @@ def receive_file(client, progress_bar=None):
         
         file_path = os.path.join('downloads', filename)
         file = open(file_path, 'wb')
-        file_bytes = b""
-        done = False
+        bytes_received = 0
+        CHUNK_SIZE = 1024
 
         if progress_bar:
-            progress = tqdm.tqdm(total=int(file_size), unit='B', unit_scale=True, unit_divisor=1024, desc=filename)
+            progress = tqdm.tqdm(total=file_size, unit='B', unit_scale=True, unit_divisor=1024, desc=filename)
         else:
             progress = None
 
-        while not done:
-            data = client.recv(1024)
-            if data.endswith(b"<END>"):
-                done = True
-                file_bytes += data[:-5]
-            else:
-                file_bytes += data
+        # Receive file data in chunks
+        while bytes_received < file_size:
+            chunk = client.recv(min(CHUNK_SIZE, file_size - bytes_received))
+            if not chunk:
+                break
+            file.write(chunk)
+            bytes_received += len(chunk)
             if progress:
-                progress.update(len(data))
+                progress.update(len(chunk))
 
-        file.write(file_bytes)
+        # Read and discard the <END> marker
+        end_marker = client.recv(5)
+        if end_marker != b"<END>":
+            print("Warning: End marker not received correctly")
+
         file.close()
         if progress:
             progress.close()
@@ -55,7 +69,10 @@ def main():
             
             try:
                 # Receive number of files
-                num_files = int(client.recv(1024).decode())
+                num_files_str = ""
+                while "||" not in num_files_str:
+                    num_files_str += client.recv(1024).decode()
+                num_files = int(num_files_str.split("||")[0])
                 print(f"Receiving {num_files} files...")
                 
                 # Receive each file
