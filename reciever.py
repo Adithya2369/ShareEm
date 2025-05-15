@@ -10,13 +10,46 @@ import os
 def receive_file(client, progress_bar=None):
     try:
         # Receive header info (filename and size)
-        header = ""
-        while "||" not in header:
-            header += client.recv(1024).decode()
+        header = b""
+        while b"||" not in header:
+            chunk = client.recv(1024)
+            if not chunk:
+                break
+            header += chunk
         
-        header = header.split("||")[0]  # Get the first part before delimiter
-        filename, file_size = header.split("|")
-        file_size = int(file_size)
+        if not header:
+            return False
+            
+        # Split header and check for end marker
+        header_parts = header.split(b"||")
+        if len(header_parts) > 1 and header_parts[1].startswith(b"<END>"):
+            # This was actually the end marker from previous file
+            header = header_parts[0]
+            # Get the next header
+            next_header = b""
+            while b"||" not in next_header:
+                chunk = client.recv(1024)
+                if not chunk:
+                    break
+                next_header += chunk
+            header = next_header.split(b"||")[0]
+        
+        # Split the header into filename and size
+        try:
+            # Find the last occurrence of | to handle filenames that might contain |
+            last_pipe = header.rfind(b"|")
+            if last_pipe == -1:
+                raise ValueError("Invalid header format: missing separator")
+            
+            filename = header[:last_pipe].decode('utf-8')
+            file_size = int(header[last_pipe + 1:].decode('utf-8'))
+            
+            if not filename or file_size < 0:
+                raise ValueError("Invalid filename or file size")
+                
+        except (UnicodeDecodeError, ValueError) as e:
+            print(f"Error parsing header: {str(e)}")
+            return False
 
         # Create downloads directory if it doesn't exist
         if not os.path.exists('downloads'):
@@ -41,11 +74,6 @@ def receive_file(client, progress_bar=None):
             bytes_received += len(chunk)
             if progress:
                 progress.update(len(chunk))
-
-        # Read and discard the <END> marker
-        end_marker = client.recv(5)
-        if end_marker != b"<END>":
-            print("Warning: End marker not received correctly")
 
         file.close()
         if progress:

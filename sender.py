@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 import argparse
+import time
 
 def send_file(client, file_path):
     try:
@@ -15,9 +16,17 @@ def send_file(client, file_path):
         file_size = os.path.getsize(file_path)
         filename = os.path.basename(file_path)
 
+        # Ensure filename is safe to encode
+        try:
+            filename.encode('utf-8')
+        except UnicodeEncodeError:
+            print(f"Error: Filename {filename} contains invalid characters")
+            return False
+
         # Send filename and size with delimiters
-        header = f"{filename}|{file_size}||"
-        client.send(header.encode())
+        # Use the last | as the separator between filename and size
+        header = f"{filename}|{file_size}||".encode('utf-8')
+        client.send(header)
 
         # Send file data in chunks
         CHUNK_SIZE = 1024
@@ -27,7 +36,8 @@ def send_file(client, file_path):
                 break
             client.send(chunk)
         
-        # Send end marker
+        # Send end marker with a small delay to ensure proper separation
+        time.sleep(0.1)  # Small delay to ensure proper separation
         client.send(b"<END>")
         file.close()
         print(f"Successfully sent {filename}")
